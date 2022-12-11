@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-
 import numpy as np
 from absl import app, flags, logging
 from ml_collections.config_flags import config_flags
@@ -9,7 +8,6 @@ from typing import TYPE_CHECKING
 import jax
 from flax.serialization import to_state_dict, from_state_dict
 from flax.linen import jit
-import tensorflow as tf
 import logging as base_logger
 from flax.traverse_util import flatten_dict, unflatten_dict
 from safetensors.flax import save_file, load_file
@@ -21,7 +19,6 @@ from pkg import ppo_lib, models, env_utils, agent
 
 base_logger.getLogger().setLevel(logging.DEBUG)
 del base_logger
-tf.get_logger().setLevel("DEBUG")
 logging.set_verbosity("debug")
 jax.config.update("jax_log_compiles", True)
 jax.config.update("jax_debug_nans", True)
@@ -76,11 +73,11 @@ def play(config: ConfigDict):
 
 
 def main(*args):
-    tf.config.set_visible_devices([], "GPU")
-    logging.debug(f"Devices = {jax.devices()}")
+
     config = CONFIG.value
     logging.debug("-" * 100)
-    logging.debug(f"config = {config}")
+    logging.debug(f"{jax.devices() = }")
+    logging.debug(f"{config = }")
     logging.debug("-" * 100)
 
     if FLAGS.task == "train":

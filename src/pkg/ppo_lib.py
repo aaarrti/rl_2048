@@ -18,8 +18,6 @@ from __future__ import annotations
 import functools
 from absl import logging
 from flax import linen as nn
-from flax.metrics import tensorboard
-from flax.training import checkpoints
 from flax.training.train_state import TrainState
 import jax
 import jax.random
@@ -296,17 +294,12 @@ def create_train_state(
 def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
     """Main training loop."""
 
-    model_dir = config.model_dir
     simulators = [
         agent.RemoteSimulator(config.max_steps) for _ in range(config.num_agents)
     ]
 
-    summary_writer = tensorboard.SummaryWriter(model_dir)
-    summary_writer.hparams(dict(config))
-
     loop_steps = config.total_frames // (config.num_agents * config.actor_steps)
     log_frequency = config.log_frequency
-    checkpoint_frequency = config.checkpoint_frequency
     # train_step does multiple steps per call for better performance
     # compute number of steps per call here to convert between the number of
     # train steps and the inner number of optimizer steps
@@ -320,7 +313,6 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
         loop_steps * config.num_epochs * iterations_per_step,
     )
     del initial_params
-    state = checkpoints.restore_checkpoint(model_dir, state)
     # number of train iterations done by each train_step
 
     start_step = int(state.step) // config.num_epochs // iterations_per_step
@@ -333,7 +325,6 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
                 1, state.apply_fn, state.params, config.max_steps
             )
             frames = step * config.num_agents * config.actor_steps
-            summary_writer.scalar("game_score", score, frames)
             logging.info("Step %s:\nframes seen %s\nscore %s\n\n", step, frames, score)
 
         # Core training code.
@@ -358,6 +349,4 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
                 vf_coeff=config.vf_coeff,
                 entropy_coeff=config.entropy_coeff,
             )
-        if (step + 1) % checkpoint_frequency == 0:
-            checkpoints.save_checkpoint(model_dir, state, step + 1)
     return state

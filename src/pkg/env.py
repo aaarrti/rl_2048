@@ -15,13 +15,6 @@ class Base2048Env(gym.Env):
     metadata = {
         "render.modes": ["human"],
     }
-
-    ##
-    # NOTE: Don't modify these numbers as
-    # they define the number of
-    # anti-clockwise rotations before
-    # applying the left action on a grid
-    #
     LEFT = 0
     UP = 1
     RIGHT = 2

@@ -9,8 +9,6 @@ def get_config() -> ConfigDict:
     config.num_actions = 4
     #
     config.momentum = 0.9
-    # Name of directory to save checkpoints during training.
-    config.model_dir = "checkpoints/"
     # Total number of frames seen during training.
     config.total_frames = 400
     # The learning rate for the Adam optimizer.
@@ -20,7 +18,7 @@ def get_config() -> ConfigDict:
     # Number of agents playing in parallel.
     config.num_agents = 8
     # Number of steps each agent performs in one policy unroll.
-    config.actor_steps = 128
+    config.actor_steps = 8
     # Number of training epochs per each unroll of the policy.
     config.num_epochs = 1
     # RL discount parameter.
@@ -37,8 +35,6 @@ def get_config() -> ConfigDict:
     config.decaying_lr_and_clip_param = True
     # Log metric every n epoch.
     config.log_frequency = 1
-    # Write checkpoints every n epoch.
-    config.checkpoint_frequency = 1
     # Limit of steps for the environment.
     config.max_steps = 1000
     # Seed for the PRNG
