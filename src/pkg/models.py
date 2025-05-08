@@ -14,17 +14,24 @@
 
 """Class and functions to define and initialize the actor-critic model."""
 
-from flax import linen as nn
+import jax
 import jax.numpy as jnp
+from flax import linen as nn
 
 
 class ActorCritic(nn.Module):
     """Class defining the actor-critic model."""
 
-    num_outputs: int
+    num_outputs: int = 4
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> tuple[jax.Array, jax.Array]:
+        """
+        returns:
+            - policy log_probs
+            - chosen action
+
+        """
         dtype = jnp.float32
         x = x.reshape((x.shape[0], -1))
         x = nn.Dense(16)(x)

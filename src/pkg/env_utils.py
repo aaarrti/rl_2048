@@ -14,10 +14,10 @@
 
 """Utilities for handling the environment."""
 
-import gym
+import gymnasium as gym
 import numpy as np
 
-from .env import Base2048Env
+from pkg.env import Game2048Env
 
 
 class ClipRewardEnv(gym.RewardWrapper):
@@ -31,13 +31,13 @@ class ClipRewardEnv(gym.RewardWrapper):
 
     def reward(self, reward):
         """Bin reward to {+1, 0, -1} by its sign."""
-        return np.sign(reward)
+        return np.sign(reward)  # type: ignore
 
 
-def create_env(clip_rewards: bool, max_steps: int) -> Base2048Env:
+def create_env(clip_rewards: bool, max_steps: int) -> Game2048Env:
     """Create a FrameStack object that serves as environment for the `game`."""
-    env = Base2048Env()
+    env = Game2048Env()
     env = gym.wrappers.TimeLimit(env, max_steps)
     if clip_rewards:
         env = ClipRewardEnv(env)  # bin rewards to {-1., 0., 1.}
-    return env  # noqa
+    return env  # type: ignore

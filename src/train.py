@@ -1,52 +1,66 @@
-# Copyright 2022 The Flax Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""Library file which executes the PPO training."""
 from __future__ import annotations
 
-import functools
-from absl import logging
-from flax import linen as nn
-from flax.training.train_state import TrainState
+import itertools
+from collections.abc import Callable
+from functools import partial
+from typing import Any, Mapping
+
 import jax
-import jax.random
 import jax.numpy as jnp
 import numpy as np
 import optax
-from typing import TYPE_CHECKING
+from absl import app, logging
+from flax.serialization import to_state_dict
+from flax.training.train_state import TrainState
+from flax.traverse_util import flatten_dict
+from ml_collections.config_flags import config_flags
+from safetensors.flax import save_file
 
-if TYPE_CHECKING:
-    from typing import Tuple, List, Callable, Tuple, List
-    from flax.core import FrozenDict
-    from ml_collections.config_dict import ConfigDict
+from pkg.agent import ExpTuple, RemoteSimulator, policy_action
+from pkg.config import ConfigProto
+from pkg.env_utils import create_env
+from pkg.models import ActorCritic
+from pkg.util import get_initial_params
 
-    # states, actions, log_probs, returns, advantages
-    Trajectory = Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-    from .agent import RemoteSimulator
+CONFIG = config_flags.DEFINE_config_file("config", default="src/config.py")
 
-from . import models, test_episodes, agent
+type TODO = Any
+
+
+def policy_test(
+    n_episodes: int, apply_fn: Callable, params: Mapping[str, Any], max_steps: int
+) -> float:
+    """Perform a test of the policy in Game environment."""
+    total_reward = 0.0
+    test_env = create_env(False, max_steps)
+    for _ in range(n_episodes):
+        obs, _ = test_env.reset()
+        state = obs[None, ...]  # add batch dimension
+        total_reward = 0.0
+        for _ in itertools.count():
+            log_probs, _ = policy_action(apply_fn, params, state)
+            probs = np.exp(np.array(log_probs, dtype=np.float32))
+            probabilities = probs[0] / probs[0].sum()
+            action = np.random.choice(probs.shape[1], p=probabilities)
+            obs, reward, done, truncated, _ = test_env.step(action)
+            stopped = done or truncated
+            total_reward += reward
+            next_state = obs[None, ...] if not stopped else None
+            state = next_state
+            if stopped:
+                break
+    return total_reward
 
 
 @jax.jit
-@functools.partial(jax.vmap, in_axes=(1, 1, 1, None, None), out_axes=1)
+@partial(jax.vmap, in_axes=(1, 1, 1, None, None), out_axes=1)
 def gae_advantages(
     rewards: np.ndarray,
     terminal_masks: np.ndarray,
     values: np.ndarray,
     discount: float,
     gae_param: float,
-) -> jnp.ndarray:
+) -> jax.Array:
     """Use Generalized Advantage Estimation (GAE) to compute advantages.
 
     As defined by eqs. (11-12) in PPO paper arXiv: 1707.06347. Implementation uses
@@ -64,9 +78,7 @@ def gae_advantages(
       advantages: calculated advantages shaped (actor_steps, num_agents)
     """
     assert rewards.shape[0] + 1 == values.shape[0], (
-        "One more value needed; Eq. "
-        "(12) in PPO paper requires "
-        "V(s_{t+1}) for delta_t"
+        "One more value needed; Eq. " "(12) in PPO paper requires " "V(s_{t+1}) for delta_t"
     )
     advantages = []
     gae = 0.0
@@ -82,68 +94,16 @@ def gae_advantages(
     return jnp.array(advantages)
 
 
-def loss_fn(
-    params: FrozenDict,
-    apply_fn: Callable,
-    minibatch: Trajectory,
-    clip_param: float,
-    vf_coeff: float,
-    entropy_coeff: float,
-) -> jnp.float32:
-    """Evaluate the loss function.
-
-    Compute loss as a sum of three components: the negative of the PPO clipped
-    surrogate objective, the value function loss and the negative of the entropy
-    bonus.
-
-    Args:
-      params: the parameters of the actor-critic model
-      apply_fn: the actor-critic model's apply function
-      minibatch: Tuple of five elements forming one experience batch:
-                 states: shape (batch_size, 84, 84, 4)
-                 actions: shape (batch_size, 84, 84, 4)
-                 old_log_probs: shape (batch_size,)
-                 returns: shape (batch_size,)
-                 advantages: shape (batch_size,)
-      clip_param: the PPO clipping parameter used to clamp ratios in loss function
-      vf_coeff: weighs value function loss in total loss
-      entropy_coeff: weighs entropy bonus in the total loss
-
-    Returns:
-      loss: the PPO loss, scalar quantity
-    """
-    states, actions, old_log_probs, returns, advantages = minibatch
-    log_probs, values = agent.policy_action(apply_fn, params, states)
-    values = values[:, 0]  # Convert shapes: (batch, 1) to (batch, ).
-    probs = jnp.exp(log_probs)
-
-    value_loss = jnp.mean(jnp.square(returns - values), axis=0)
-
-    entropy = jnp.sum(-probs * log_probs, axis=1).mean()
-
-    log_probs_act_taken = jax.vmap(lambda lp, a: lp[a])(log_probs, actions)
-    ratios = jnp.exp(log_probs_act_taken - old_log_probs)
-    # Advantage normalization (following the OpenAI baselines).
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-    pg_loss = ratios * advantages
-    clipped_loss = advantages * jax.lax.clamp(
-        1.0 - clip_param, ratios, 1.0 + clip_param
-    )
-    ppo_loss = -jnp.mean(jnp.minimum(pg_loss, clipped_loss), axis=0)
-
-    return ppo_loss + vf_coeff * value_loss - entropy_coeff * entropy
-
-
-@functools.partial(jax.jit, static_argnums=(2,))
+@partial(jax.jit, static_argnums=(2,))
 def train_step(
     state: TrainState,
-    trajectories: Tuple,
+    trajectories: tuple,
     batch_size: int,
     *,
     clip_param: float,
     vf_coeff: float,
     entropy_coeff: float,
-) -> Tuple[TrainState, jnp.float32]:
+) -> tuple[TrainState, float]:
     """Compilable train step.
 
     Runs an entire epoch of training (i.e. the loop over minibatches within
@@ -173,9 +133,7 @@ def train_step(
     loss = 0.0
     for batch in zip(*trajectories):
         grad_fn = jax.value_and_grad(loss_fn)
-        l, grads = grad_fn(
-            state.params, state.apply_fn, batch, clip_param, vf_coeff, entropy_coeff
-        )
+        l, grads = grad_fn(state.params, state.apply_fn, batch, clip_param, vf_coeff, entropy_coeff)
         loss += l
         state = state.apply_gradients(grads=grads)
     return state, loss
@@ -183,9 +141,9 @@ def train_step(
 
 def get_experience(
     state: TrainState,
-    simulators: List[RemoteSimulator],
+    simulators: list[RemoteSimulator],
     steps_per_actor: int,
-) -> List[List[agent.ExpTuple]]:
+) -> list[list[ExpTuple]]:
     """Collect experience from agents.
 
     Runs `steps_per_actor` time steps of the game for each of the `simulators`.
@@ -198,9 +156,7 @@ def get_experience(
             sim_state = sim.conn.recv()
             sim_states.append(sim_state)
         sim_states = np.concatenate(sim_states, axis=0)
-        log_probs, values = agent.policy_action(
-            state.apply_fn, state.params, sim_states
-        )
+        log_probs, values = policy_action(state.apply_fn, state.params, sim_states)
         log_probs, values = jax.device_get((log_probs, values))
         probs = np.exp(np.array(log_probs))
         for i, sim in enumerate(simulators):
@@ -212,14 +168,14 @@ def get_experience(
             sim_state, action, reward, done = sim.conn.recv()
             value = values[i, 0]
             log_prob = log_probs[i][action]
-            sample = agent.ExpTuple(sim_state, action, reward, value, log_prob, done)
+            sample = ExpTuple(sim_state, action, reward, value, log_prob, done)
             experiences.append(sample)
         all_experience.append(experiences)
     return all_experience
 
 
 def process_experience(
-    experience: List[List[agent.ExpTuple]],
+    experience: list[list[ExpTuple]],
     actor_steps: int,
     num_agents: int,
     gamma: float,
@@ -269,16 +225,8 @@ def process_experience(
     return trajectories
 
 
-@functools.partial(jax.jit, static_argnums=1)
-def get_initial_params(key: np.ndarray, model: nn.Module):
-    input_dims = (1, 4, 4)
-    init_shape = jnp.ones(input_dims, jnp.float32)
-    initial_params = model.init(key, init_shape)["params"]
-    return initial_params
-
-
 def create_train_state(
-    params: FrozenDict, model: nn.Module, config: ConfigDict, train_steps: int
+    params: Mapping[str, Any], model: ActorCritic, config: ConfigProto, train_steps: int
 ) -> TrainState:
     if config.decaying_lr_and_clip_param:
         lr = optax.linear_schedule(
@@ -291,12 +239,59 @@ def create_train_state(
     return state
 
 
-def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
-    """Main training loop."""
+def loss_fn(
+    params: Mapping[str, Any],
+    apply_fn: TODO,
+    minibatch: TODO,
+    clip_param: float,
+    vf_coeff: float,
+    entropy_coeff: float,
+) -> float:
+    """Evaluate the loss function.
 
-    simulators = [
-        agent.RemoteSimulator(config.max_steps) for _ in range(config.num_agents)
-    ]
+    Compute loss as a sum of three components: the negative of the PPO clipped
+    surrogate objective, the value function loss and the negative of the entropy
+    bonus.
+
+    Args:
+      params: the parameters of the actor-critic model
+      apply_fn: the actor-critic model's apply function
+      minibatch: Tuple of five elements forming one experience batch:
+                 states: shape (batch_size, 84, 84, 4)
+                 actions: shape (batch_size, 84, 84, 4)
+                 old_log_probs: shape (batch_size,)
+                 returns: shape (batch_size,)
+                 advantages: shape (batch_size,)
+      clip_param: the PPO clipping parameter used to clamp ratios in loss function
+      vf_coeff: weighs value function loss in total loss
+      entropy_coeff: weighs entropy bonus in the total loss
+
+    Returns:
+      loss: the PPO loss, scalar quantity
+    """
+    states, actions, old_log_probs, returns, advantages = minibatch
+    log_probs, values = policy_action(apply_fn, params, states)
+    values = values[:, 0]  # Convert shapes: (batch, 1) to (batch, ).
+    probs = jnp.exp(log_probs)
+
+    value_loss = jnp.mean(jnp.square(returns - values), axis=0)
+
+    entropy = jnp.sum(-probs * log_probs, axis=1).mean()
+
+    log_probs_act_taken = jax.vmap(lambda lp, a: lp[a])(log_probs, actions)
+    ratios = jnp.exp(log_probs_act_taken - old_log_probs)
+    # Advantage normalization (following the OpenAI baselines).
+    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    pg_loss = ratios * advantages
+    clipped_loss = advantages * jax.lax.clamp(1.0 - clip_param, ratios, 1.0 + clip_param)
+    ppo_loss = -jnp.mean(jnp.minimum(pg_loss, clipped_loss), axis=0)
+
+    return ppo_loss + vf_coeff * value_loss - entropy_coeff * entropy  # type: ignore
+
+
+def train_loop(model: ActorCritic, config: ConfigProto) -> TrainState:
+
+    simulators = [RemoteSimulator(config.max_steps) for _ in range(config.num_agents)]
 
     loop_steps = config.total_frames // (config.num_agents * config.actor_steps)
     log_frequency = config.log_frequency
@@ -305,7 +300,7 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
     # train steps and the inner number of optimizer steps
     iterations_per_step = config.num_agents * config.actor_steps // config.batch_size
 
-    initial_params = get_initial_params(jax.random.PRNGKey(config.seed), model)  # noqa
+    initial_params = get_initial_params(jax.random.PRNGKey(config.seed), model)
     state = create_train_state(
         initial_params,
         model,
@@ -321,9 +316,7 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
     for step in range(start_step, loop_steps):
         # Bookkeeping and testing.
         if step % log_frequency == 0:
-            score = test_episodes.policy_test(
-                1, state.apply_fn, state.params, config.max_steps
-            )
+            score = policy_test(1, state.apply_fn, state.params, config.max_steps)
             frames = step * config.num_agents * config.actor_steps
             logging.info("Step %s:\nframes seen %s\nscore %s\n\n", step, frames, score)
 
@@ -350,3 +343,25 @@ def train(model: models.ActorCritic, config: ConfigDict) -> TrainState:
                 entropy_coeff=config.entropy_coeff,
             )
     return state
+
+
+def main(config: ConfigProto):
+    model = ActorCritic(num_outputs=config.num_actions)
+    state = train_loop(model, config)
+    state_dict = to_state_dict(state.params)
+    state_dict = flatten_dict(state_dict, sep="/")
+    save_file(state_dict, "models/params.safetensors")  # type: ignore
+
+
+def entrypoint(*args):
+    config = CONFIG.value
+    logging.debug("-" * 100)
+    logging.debug(f"{jax.devices() = }")
+    logging.debug(f"{config = }")
+    logging.debug("-" * 100)
+    logging.debug(f"Playing 2048 with {config.num_actions} actions")
+    main(config)
+
+
+if __name__ == "__main__":
+    app.run(entrypoint)

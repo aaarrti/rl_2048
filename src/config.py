@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from ml_collections.config_dict import ConfigDict
 
 
@@ -7,7 +5,6 @@ def get_config() -> ConfigDict:
     config = ConfigDict()
     # Number available actions in environment
     config.num_actions = 4
-    #
     config.momentum = 0.9
     # Total number of frames seen during training.
     config.total_frames = 400

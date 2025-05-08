@@ -147,4 +147,5 @@ python/policy
 
 checkpoints
 weights.pickle
-
+.history
+models/*.safetensors

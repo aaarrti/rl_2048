@@ -1,0 +1,25 @@
+[project]
+name = "rl-2048"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "absl-py>=2.2.2",
+    "flax>=0.10.6",
+    "gymnasium>=1.1.1",
+    "jax[cuda12]>=0.6.0",
+    "ml-collections>=1.1.0",
+    "optax>=0.2.4",
+    "safetensors>=0.5.3",
+]
+
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

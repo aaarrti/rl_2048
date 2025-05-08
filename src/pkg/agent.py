@@ -15,34 +15,16 @@
 """Agent utilities, incl. choosing the move and running in a separate process."""
 
 from __future__ import annotations
-import collections
+
 import functools
 import multiprocessing
+import multiprocessing.connection
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
-import flax
 import jax
-import numpy as np
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from typing import Any, Callable
-from .env_utils import create_env
-
-
-@functools.partial(jax.jit, static_argnums=0)
-def policy_action(
-    apply_fn: Callable[..., Any],
-    params: flax.core.frozen_dict.FrozenDict,
-    state: np.ndarray,
-):
-    """Forward pass of the network."""
-    out = apply_fn({"params": params}, state)
-    return out
-
-
-ExpTuple = collections.namedtuple(
-    "ExpTuple", ["state", "action", "reward", "value", "log_prob", "done"]
-)
+from pkg.env_utils import create_env
 
 
 class RemoteSimulator:
@@ -59,12 +41,28 @@ class RemoteSimulator:
         self.proc.start()
 
 
-def rcv_action_send_exp(conn: multiprocessing.Pipe, max_steps: int):
+class ExpTuple(NamedTuple):
+    state: Any
+    action: int
+    reward: int
+    value: Any
+    log_prob: jax.Array
+    done: bool
+
+
+@functools.partial(jax.jit, static_argnums=0)
+def policy_action[T](apply_fn: Callable[..., T], params: dict[str, Any], state: jax.Array) -> T:
+    """Forward pass of the network."""
+    out = apply_fn({"params": params}, state)
+    return out
+
+
+def rcv_action_send_exp(conn: multiprocessing.connection.Connection, max_steps: int):
     """Run the remote agents."""
     env = create_env(True, max_steps)
 
     while True:
-        obs = env.reset()
+        obs, _ = env.reset()
         done = False
         # Observations fetched from Atari env need additional batch dimension.
         state = obs[None, ...]

@@ -1,164 +1,105 @@
 from __future__ import annotations
 
+import random
+
+import gymnasium as gym
 import numpy as np
-import gym
-import gym.spaces as spaces
-from gym.utils import seeding
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from typing import Optional, Tuple, Dict
+from gymnasium import spaces
 
 
-class Base2048Env(gym.Env):
-    metadata = {
-        "render.modes": ["human"],
-    }
-    LEFT = 0
-    UP = 1
-    RIGHT = 2
-    DOWN = 3
+class Game2048Env(gym.Env):
+    metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    ACTION_STRING = {
-        LEFT: "left",
-        UP: "up",
-        RIGHT: "right",
-        DOWN: "down",
-    }
-
-    board: np.ndarray
-
-    def __init__(self, width=4, height=4, seed: Optional[int] = 0):
-        self.width = width
-        self.height = height
-
+    def __init__(self):
+        super(Game2048Env, self).__init__()
+        self.size = 4
+        self.action_space = spaces.Discrete(4)  # 0=up, 1=down, 2=left, 3=right
         self.observation_space = spaces.Box(
-            low=2, high=2**32, shape=(self.width, self.height), dtype=np.int64
+            low=0, high=2**16, shape=(self.size * self.size,), dtype=np.int32
         )
-        self.action_space = spaces.Discrete(4)
+        self.board = np.zeros((self.size, self.size), dtype=np.int32)
 
-        # Internal Variables
-        self.np_random, _ = seeding.np_random(seed)
-        self.reset()
+    def reset(self, seed=None, options=None) -> tuple[np.ndarray, dict]:  # type: ignore
+        super().reset(seed=seed)
+        self.board.fill(0)
+        self._add_random_tile()
+        self._add_random_tile()
+        return self.board.flatten(), {}
 
-    def step(self, action: int) -> Tuple[np.ndarray, np.float, bool, bool, Dict]:
-        # Align board action with left action
-        rotated_obs = np.rot90(self.board, k=action)
-        reward, updated_obs = self._slide_left_and_merge(rotated_obs)
-        self.board = np.rot90(updated_obs, k=4 - action)
-        # Place one random tile on empty location
-        self._place_random_tiles(self.board, count=1)
-        done = self.is_done()
-        return self.board, reward, done, False, {}
+    def _add_random_tile(self):
+        empty_cells = list(zip(*np.where(self.board == 0)))
+        if empty_cells:
+            i, j = random.choice(empty_cells)
+            self.board[i][j] = 2 if random.random() < 0.9 else 4
 
-    def is_done(self) -> bool:
-        copy_board = self.board.copy()
-        if not copy_board.all():
-            return False
-        for action in [0, 1, 2, 3]:
-            rotated_obs = np.rot90(copy_board, k=action)
-            _, updated_obs = self._slide_left_and_merge(rotated_obs)
-            if not updated_obs.all():
-                return False
-        return True
-
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict] = None,
-    ) -> np.ndarray:
-        """Place 2 tiles on empty board."""
-        self.board = np.zeros((self.width, self.height), dtype=np.int64)
-        self.board = self._place_random_tiles(self.board.copy(), count=2)
-        return self.board
-
-    def _sample_tiles(self, count=1) -> np.ndarray:
-        """Sample tile 2 or 4."""
-
-        choices = [2, 4]
-        probs = [0.9, 0.1]
-
-        tiles = self.np_random.choice(choices, size=count, p=probs)
-        return tiles
-
-    def _sample_tile_locations(self, board: np.ndarray, count: int = 1) -> np.ndarray:
-        """Sample grid locations with no tile."""
-
-        zero_locs = np.argwhere(board == 0)
-        zero_indices = self.np_random.choice(len(zero_locs), size=count)
-
-        zero_pos = zero_locs[zero_indices]
-        zero_pos = list(zip(*zero_pos))
-        zero_pos = np.asarray(zero_pos)
-        if count == 1:
-            zero_pos = np.expand_dims(zero_pos, 0)
-        return zero_pos
-
-    def _place_random_tiles(self, board: np.ndarray, count=1) -> np.ndarray:
-        if board.all():
-            return board
-
-        tiles = self._sample_tiles(count)
-        tile_locs = self._sample_tile_locations(board, count)
-        for i in range(count):
-            board[tile_locs[i][0], tile_locs[i][1]] = tiles[i]
-        return board
-
-    def _slide_left_and_merge(self, board: np.ndarray) -> Tuple[float, np.ndarray]:
-        """Slide tiles on a grid to the left and merge."""
-
-        result = []
-
-        score = 0
-        for row in board:
-            row = np.extract(row > 0, row)
-            score_, result_row = self._try_merge(row)
-            score += score_
-            row = np.pad(
-                np.array(result_row),
-                (0, self.width - len(result_row)),
-                "constant",
-                constant_values=(0,),
-            )
-            result.append(row)
-
-        return score, np.array(result, dtype=np.int64)
-
-    @staticmethod
-    def _try_merge(row: np.ndarray) -> Tuple[int, np.ndarray]:
-        score = 0
-        result_row = []
-
-        i = 1
-        while i < len(row):
-            if row[i] == row[i - 1]:
-                score += row[i] + row[i - 1]
-                result_row.append(row[i] + row[i - 1])
-                i += 2
-            else:
-                result_row.append(row[i - 1])
+    def _move(self, board, direction):
+        def compress(row):
+            new_row = row[row != 0]
+            new_row = list(new_row)
+            i = 0
+            reward = 0
+            while i < len(new_row) - 1:
+                if new_row[i] == new_row[i + 1]:
+                    new_row[i] *= 2
+                    reward += new_row[i]
+                    del new_row[i + 1]
+                    new_row.append(0)
+                    i += 1
                 i += 1
+            return np.array(new_row + [0] * (self.size - len(new_row))), reward
 
-        if i == len(row):
-            result_row.append(row[i - 1])
+        reward_total = 0
+        moved = False
+        for i in range(self.size):
+            if direction == 0:  # up
+                col, reward = compress(board[:, i])
+                if not np.array_equal(board[:, i], col):
+                    moved = True
+                board[:, i] = col
+            elif direction == 1:  # down
+                col, reward = compress(board[::-1, i])
+                col = col[::-1]
+                if not np.array_equal(board[:, i], col):
+                    moved = True
+                board[:, i] = col
+            elif direction == 2:  # left
+                row, reward = compress(board[i])
+                if not np.array_equal(board[i], row):
+                    moved = True
+                board[i] = row
+            elif direction == 3:  # right
+                row, reward = compress(board[i][::-1])
+                row = row[::-1]
+                if not np.array_equal(board[i], row):
+                    moved = True
+                board[i] = row
+            reward_total += reward  # type: ignore
+        return moved, reward_total
 
-        return score, np.asarray(result_row)
+    def step(self, action):
+        old_board = self.board.copy()
+        moved, reward = self._move(self.board, action)
 
-    def render(self, mode: str = "human"):
-        print()
-        for i in self.board:
-            print("-" * 29)
-            print("|", end="")
-            for j in i:
-                if j == 0:
-                    print(f"{' ':<6}|", end="")
-                else:
-                    print(f"{j:<6}|", end="")
-            print()
-        print("-" * 29)
+        if moved:
+            self._add_random_tile()
 
-    def get_action_mask(self) -> np.ndarray:
-        # TODO
-        return np.asarray([1, 1, 1, 1])
+        done = not self._any_moves_left()
+        return self.board.flatten(), reward, done, False, {}
+
+    def _any_moves_left(self):
+        if np.any(self.board == 0):
+            return True
+        for i in range(self.size):
+            for j in range(self.size - 1):
+                if (
+                    self.board[i][j] == self.board[i][j + 1]
+                    or self.board[j][i] == self.board[j + 1][i]
+                ):
+                    return True
+        return False
+
+    def render(self):
+        print(self.board)
+
+    def close(self):
+        pass
