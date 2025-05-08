@@ -22,6 +22,7 @@ import multiprocessing.connection
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
+import numpy as np
 import jax
 
 from pkg.env_utils import create_env
@@ -42,11 +43,11 @@ class RemoteSimulator:
 
 
 class ExpTuple(NamedTuple):
-    state: Any
-    action: int
-    reward: int
-    value: Any
-    log_prob: jax.Array
+    state: np.ndarray
+    action: np.int32
+    reward: np.int32
+    value: np.float32
+    log_prob: np.ndarray
     done: bool
 
 

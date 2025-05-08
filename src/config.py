@@ -7,7 +7,7 @@ def get_config() -> ConfigDict:
     config.num_actions = 4
     config.momentum = 0.9
     # Total number of frames seen during training.
-    config.total_frames = 400
+    config.total_frames = 400_000
     # The learning rate for the Adam optimizer.
     config.learning_rate = 2.5e-4
     # Batch size used in training.
@@ -17,7 +17,7 @@ def get_config() -> ConfigDict:
     # Number of steps each agent performs in one policy unroll.
     config.actor_steps = 8
     # Number of training epochs per each unroll of the policy.
-    config.num_epochs = 1
+    config.num_epochs = 40
     # RL discount parameter.
     config.gamma = 0.99
     # Generalized Advantage Estimation parameter.
@@ -31,7 +31,7 @@ def get_config() -> ConfigDict:
     # Linearly decay learning rate and clipping parameter to zero during the training.
     config.decaying_lr_and_clip_param = True
     # Log metric every n epoch.
-    config.log_frequency = 1
+    config.log_frequency = 40
     # Limit of steps for the environment.
     config.max_steps = 1000
     # Seed for the PRNG

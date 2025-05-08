@@ -14,6 +14,7 @@
 
 """Class and functions to define and initialize the actor-critic model."""
 
+from typing import Any
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
@@ -42,3 +43,10 @@ class ActorCritic(nn.Module):
         policy_log_probabilities = nn.log_softmax(logits)
         value = nn.Dense(features=1, name="value", dtype=dtype)(x)
         return policy_log_probabilities, value
+
+
+def get_initial_params(key: jax.Array, model: ActorCritic) -> dict[str, Any]:
+    input_dims = (1, 4, 4)
+    init_shape = jnp.ones(input_dims, jnp.float32)
+    initial_params = model.init(key, init_shape)["params"]
+    return initial_params  # type: ignore

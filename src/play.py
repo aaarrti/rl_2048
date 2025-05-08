@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import logging as base_logger
 import time
-from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-from absl import app, flags, logging
+from absl import app
 from flax.linen import jit
-from flax.serialization import from_state_dict, to_state_dict
-from flax.traverse_util import flatten_dict, unflatten_dict
-from ml_collections.config_dict import ConfigDict
+from flax.serialization import from_state_dict
+from flax.traverse_util import unflatten_dict
 from ml_collections.config_flags import config_flags
-from safetensors.flax import load_file, save_file
+from safetensors.flax import load_file
 
 from pkg.config import ConfigProto
-from pkg.models import ActorCritic
-from pkg.util import get_initial_params
+from pkg.models import ActorCritic, get_initial_params
 from pkg.env_utils import create_env
 from pkg.agent import policy_action
 
@@ -29,9 +25,7 @@ def main(config: ConfigProto):
     state_dict = unflatten_dict(state_dict, sep="/")
 
     model = jit(ActorCritic)(num_outputs=config.num_actions)
-    # fmt: off
     init_params = get_initial_params(jax.random.PRNGKey(config.seed), model)  # noqa
-    # fmt: on
     params = from_state_dict(init_params, state_dict)
     del init_params
     game = create_env(False, 100)

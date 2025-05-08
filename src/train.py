@@ -19,8 +19,7 @@ from safetensors.flax import save_file
 from pkg.agent import ExpTuple, RemoteSimulator, policy_action
 from pkg.config import ConfigProto
 from pkg.env_utils import create_env
-from pkg.models import ActorCritic
-from pkg.util import get_initial_params
+from pkg.models import ActorCritic, get_initial_params
 
 CONFIG = config_flags.DEFINE_config_file("config", default="src/config.py")
 
@@ -193,7 +192,7 @@ def process_experience(
     Returns:
       trajectories: trajectories readily accessible for `train_step()` function
     """
-    obs_shape = (4, 4)
+    obs_shape = (16,)
     exp_dims = (actor_steps, num_agents)
     values_dims = (actor_steps + 1, num_agents)
     states = np.zeros(exp_dims + obs_shape, dtype=np.float32)
@@ -318,7 +317,9 @@ def train_loop(model: ActorCritic, config: ConfigProto) -> TrainState:
         if step % log_frequency == 0:
             score = policy_test(1, state.apply_fn, state.params, config.max_steps)
             frames = step * config.num_agents * config.actor_steps
-            logging.info("Step %s:\nframes seen %s\nscore %s\n\n", step, frames, score)
+            logging.info(
+                "Step %s/%s:\nframes seen %s\nscore %s\n\n", step, loop_steps, frames, score
+            )
 
         # Core training code.
         alpha = 1.0 - step / loop_steps if config.decaying_lr_and_clip_param else 1.0
