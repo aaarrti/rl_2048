@@ -140,12 +140,6 @@ cython_debug/
 
 .idea
 
-go/internal/proto/*.go
-python/scripts/game/proto/*.py
-python/checkpoints
-python/policy
-
-checkpoints
-weights.pickle
 .history
-models/*.safetensors
+.vscode
+models

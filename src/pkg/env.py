@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import random
 
 import gymnasium as gym
@@ -8,7 +6,7 @@ from gymnasium import spaces
 
 
 class Game2048Env(gym.Env):
-    metadata = {"render_modes": ["human"], "render_fps": 4}
+    metadata = {"render_modes": ["human, ascii"], "render_fps": 4, "is_parallelizable": True}
 
     def __init__(self):
         super(Game2048Env, self).__init__()

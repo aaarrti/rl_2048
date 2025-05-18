@@ -5,13 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "absl-py>=2.2.2",
-    "flax>=0.10.6",
-    "gymnasium>=1.1.1",
-    "jax[cuda12]>=0.6.0",
-    "ml-collections>=1.1.0",
-    "optax>=0.2.4",
-    "safetensors>=0.5.3",
+    "gymnasium==1.1.1",
+    "keras==3.9.2",
+    "tensorflow==2.19.0",
+    "tensorflow[and-cuda]>=2.19.0 ; sys_platform == 'linux'",
 ]
 
 
