@@ -78,21 +78,24 @@ class DQNAgent:
         batch_size: int = 32,
     ):
         self.device = device
-        self.q_net = DuelingDQN(obs_dim).to(device)
-        self.target_net = DuelingDQN(obs_dim).to(device)
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        self.q_net_uncompiled = DuelingDQN(obs_dim).to(device)
+        self.q_net = torch.compile(self.q_net_uncompiled)
+        self.target_net_uncompiled = DuelingDQN(obs_dim).to(device)
+        self.target_net_uncompiled.load_state_dict(self.q_net_uncompiled.state_dict())
 
-        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=1e-3)
+        self.target_net = torch.compile(self.target_net_uncompiled)
+
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=1e-3)  # type: ignore
         self.buffer = ReplayBuffer()
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.05
         self.epsilon_decay = 0.995
-        # self.update_target_every = 500
+        self.update_target_every = 10
         self.learn_every = 4
         self.step_count = 0
         self.n_actions = n_actions
-        self.batch_size = 32
+        self.batch_size = batch_size
 
     def select_action(self, state: np.ndarray, mask: np.ndarray) -> int:
         if not mask.any():
@@ -136,6 +139,6 @@ class DQNAgent:
         self.optimizer.step()
 
         self.step_count += 1
-        # if self.step_count % self.update_target_every == 0:
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        if self.step_count % self.update_target_every == 0:
+            self.target_net_uncompiled.load_state_dict(self.q_net_uncompiled.state_dict())
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)

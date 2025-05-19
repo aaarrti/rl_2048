@@ -1,4 +1,3 @@
-import random
 from typing import Any
 from enum import IntEnum
 import gymnasium as gym
@@ -32,21 +31,14 @@ class Game2048Env(gym.Env):
     def reset(self, seed: int | None = None, options=None) -> tuple[np.ndarray, dict]:  # type: ignore
         super().reset(seed=seed)
         self.board.fill(0)
-        self._add_random_tile()
-        self._add_random_tile()
+        self.board = add_random_tile(add_random_tile(self.board))
         return self.board.flatten(), {}
-
-    def _add_random_tile(self):
-        empty_cells = list(zip(*np.where(self.board == 0)))
-        if empty_cells:
-            i, j = random.choice(empty_cells)
-            self.board[i][j] = 2 if random.random() < 0.9 else 4
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         action = Direction(action)
         self.board, moved, reward = move(self.board, action)
         if moved:
-            self._add_random_tile()
+            self.board = add_random_tile(self.board)
         done = not any_moves_left(self.board)
         return self.board.flatten(), reward, done, False, {}
 
@@ -131,29 +123,34 @@ class Game2048Renderer(QWidget):
         self.repaint()
 
 
-# @njit
-def compress(row: np.ndarray) -> tuple[np.ndarray, float]:
-    size = row.shape[0]
-    new_row = row[row != 0]
-    new_row = list(new_row)
-    i = 0
+@njit
+def compress(row: np.ndarray) -> tuple[np.ndarray, int]:
+    non_zero = row[row != 0]
+    merged = []
     reward = 0
-    while i < len(new_row) - 1:
-        if new_row[i] == new_row[i + 1]:
-            new_row[i] *= 2
-            reward += new_row[i]
-            del new_row[i + 1]
-            new_row.append(0)
-            i += 1
-        i += 1
+    skip = False
+    i = 0
+    while i < len(non_zero):
+        if not skip and i + 1 < len(non_zero) and non_zero[i] == non_zero[i + 1]:
+            val = non_zero[i] * 2
+            merged.append(val)
+            reward += val
+            skip = True
+        else:
+            if not skip:
+                merged.append(non_zero[i])
+            skip = False
+        i += 1 if not skip else 2
+        skip = False
 
-    return np.array(new_row + [0] * (size - len(new_row))), reward
+    merged += [0] * (len(row) - len(merged))
+    return np.array(merged, dtype=row.dtype), reward
 
 
-# @njit
+@njit
 def move(board: np.ndarray, direction: Direction) -> tuple[np.ndarray, bool, float]:
     board = board.copy()
-    reward_total = 0
+    reward_total = 0.0
     moved = False
     size = board.shape[0]
     for i in range(size):
@@ -183,15 +180,16 @@ def move(board: np.ndarray, direction: Direction) -> tuple[np.ndarray, bool, flo
     return board, moved, reward_total
 
 
-# @njit
+@njit
 def any_moves_left(board: np.ndarray) -> bool:
     return bool(np.any(get_action_mask(board)))
 
 
-# @njit
+@njit
 def get_action_mask(board: np.ndarray) -> np.ndarray:
     if np.any(board == 0):
         return np.array([True, True, True, True])
+
     return np.array(
         [
             move(board, Direction.UP)[1],
@@ -200,3 +198,35 @@ def get_action_mask(board: np.ndarray) -> np.ndarray:
             move(board, Direction.RIGHT)[1],
         ],
     )
+
+
+@njit
+def add_random_tile(board: np.ndarray) -> np.ndarray:
+    # board = board.copy()
+    empty_count = 0
+    size = board.shape[0]
+
+    # First count empty cells
+    for i in range(size):
+        for j in range(size):
+            if board[i, j] == 0:
+                empty_count += 1
+
+    if empty_count == 0:
+        return board  # No space to add
+
+    # Choose the n-th empty cell
+    target_index = np.random.randint(0, empty_count)
+    value = 4 if np.random.random() < 0.1 else 2
+
+    # Find and fill that empty cell
+    empty_seen = 0
+    for i in range(size):
+        for j in range(size):
+            if board[i, j] == 0:
+                if empty_seen == target_index:
+                    board[i, j] = value
+                    return board
+                empty_seen += 1
+
+    return board  # fallback
