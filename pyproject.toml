@@ -6,9 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "gymnasium==1.1.1",
-    "keras==3.9.2",
-    "tensorflow==2.19.0",
-    "tensorflow[and-cuda]>=2.19.0 ; sys_platform == 'linux'",
+    "numba>=0.61.2",
+    "pyqt5==5.15.11",
+    "pytest>=8.3.5",
+    "rich>=14.0.0",
+    "torch==2.6.0",
 ]
 
 
@@ -20,3 +22,14 @@ target-version = ['py312']
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
