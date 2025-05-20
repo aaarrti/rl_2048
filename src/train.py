@@ -1,15 +1,12 @@
 import argparse
 from rich import print
-import rich.traceback
 import numpy as np
 import torch
 
 
-from pkg.env import Game2048Env, get_action_mask
-from pkg.agent import DQNAgent
+from env import Game2048Env, get_action_mask
+from agent import DQNAgent
 
-
-rich.traceback.install(show_locals=True)
 
 # UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled.
 # Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
@@ -17,7 +14,7 @@ torch.set_float32_matmul_precision("high")
 
 
 def main(num_episodes: int, batch_size: int):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     env = Game2048Env()
     obs, _ = env.reset()
 
@@ -44,12 +41,11 @@ def main(num_episodes: int, batch_size: int):
         total_reward = int(total_reward)
         print(f"Episode {episode:4d} — Reward: {total_reward:4d} — ε: {agent.epsilon:.3f}")
 
-    # scripted = torch.jit.trace(agent.q_net_uncompiled, torch.randn(1, 16, device=device))
-    # scripted.save("model_s/cripted.pt")  # type: ignore
+    agent.save("models/weights.pt")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-episodes", default=2_000, type=int)
-    parser.add_argument("--batch-size", default=32, type=int)
+    parser.add_argument("--batch-size", default=256, type=int)
     main(**vars(parser.parse_args()))

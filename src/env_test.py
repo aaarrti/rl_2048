@@ -1,6 +1,6 @@
 import numpy as np
 
-from pkg.env import compress, move, Direction, get_action_mask, any_moves_left
+from env import compress, move, get_action_mask, any_moves_left, Direction
 
 
 def test_compress_no_merge():
@@ -31,13 +31,13 @@ def test_move_left_merge():
         [
             [4, 0, 0, 0],
             [8, 0, 0, 0],
-            [4, 2, 2, 0],
+            [4, 4, 0, 0],
             [0, 0, 0, 0],
         ]
     )
     assert moved is True
     assert np.array_equal(new_board, expected_board)
-    assert reward == 4 + 8 + 4  # 16
+    assert reward == 4 + 8 + 4 + 4
 
 
 def test_move_no_change():
@@ -126,13 +126,13 @@ def test_merge_right():
         [
             [0, 0, 0, 4],
             [0, 0, 0, 8],
-            [0, 2, 2, 4],
+            [0, 0, 4, 4],
             [0, 0, 0, 0],
         ]
     )
     assert moved is True
-    assert reward == 4 + 8 + 4
     assert np.array_equal(new_board, expected)
+    assert reward == 4 + 8 + 4 + 4
 
 
 def test_merge_up():

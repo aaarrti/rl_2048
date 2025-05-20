@@ -4,7 +4,7 @@ from collections import deque
 import torch
 import torch.nn.functional as F
 
-from pkg.model import DuelingDQN
+from model import DuelingDQN
 
 
 class ReplayBuffer:
@@ -79,7 +79,7 @@ class DQNAgent:
     ):
         self.device = device
         self.q_net_uncompiled = DuelingDQN(obs_dim).to(device)
-        self.q_net = torch.compile(self.q_net_uncompiled)
+        self.q_net = torch.compile(self.q_net_uncompiled, fullgraph=True, mode="max-autotune")
         self.target_net_uncompiled = DuelingDQN(obs_dim).to(device)
         self.target_net_uncompiled.load_state_dict(self.q_net_uncompiled.state_dict())
 
@@ -115,6 +115,7 @@ class DQNAgent:
 
         s, a, r, s2, d, mask = self.buffer.sample(self.batch_size)
 
+        torch.compiler.cudagraph_mark_step_begin()
         s = torch.tensor(s, dtype=torch.float32).to(self.device)
         a = torch.tensor(a, dtype=torch.int64).unsqueeze(1).to(self.device)
         r = torch.tensor(r, dtype=torch.float32).unsqueeze(1).to(self.device)
@@ -142,3 +143,6 @@ class DQNAgent:
         if self.step_count % self.update_target_every == 0:
             self.target_net_uncompiled.load_state_dict(self.q_net_uncompiled.state_dict())
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
+
+    def save(self, path: str):
+        torch.save(self.q_net_uncompiled.state_dict(), path)

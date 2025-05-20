@@ -5,24 +5,19 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "gymnasium==1.1.1",
+    "gymnasium>=1.1.1",
     "numba>=0.61.2",
     "pyinstrument>=5.0.1",
-    "pyqt5==5.15.11",
+    "pyqt5>=5.15.11",
     "pytest>=8.3.5",
     "rich>=14.0.0",
-    "torch==2.6.0",
+    "torch>=2.6.0",
 ]
 
 
 [tool.black]
 line-length = 100
 target-version = ['py312']
-
-
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
