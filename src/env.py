@@ -4,6 +4,16 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 from numba import njit
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout
+from PyQt5.QtCore import QTimer
+
+from typing import Protocol
+
+
+class SelectAction(Protocol):
+
+    def __call__(self, observation: np.ndarray, mask: np.ndarray) -> int: ...
 
 
 class Direction(IntEnum):
@@ -44,6 +54,70 @@ class Game2048Env(gym.Env):
 
     def close(self):
         pass
+
+    def get_action_mask(self) -> np.ndarray:
+        return get_action_mask(self.board)
+
+
+class DQN2048Player(QWidget):
+    def __init__(self, select_action: SelectAction):
+        super().__init__()
+        self.select_action = select_action
+        self.setWindowTitle("2048 Agent")
+        self.grid = QGridLayout()
+        self.setLayout(self.grid)
+        self.cells = [[QLabel("0") for _ in range(4)] for _ in range(4)]
+        for i in range(4):
+            for j in range(4):
+                label = self.cells[i][j]
+                label.setFixedSize(80, 80)
+                label.setStyleSheet(
+                    "background-color: lightgray; font-size: 24px; text-align: center;"
+                )
+                label.setAlignment(Qt.AlignCenter)  # type: ignore
+                self.grid.addWidget(label, i, j)
+
+        self.reset_game()
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.agent_step)
+        self.timer.start(300)
+
+    def reset_game(self):
+        self.board = np.zeros((4, 4), dtype=np.int32)
+        self.board = add_random_tile(self.board)
+        self.board = add_random_tile(self.board)
+        self.update_board()
+
+    def agent_step(self):
+        mask = get_action_mask(self.board)
+        if not mask.any():
+            self.timer.stop()
+            print("Game Over!")
+            return
+
+        action = self.select_action(self.board, mask)
+        action = Direction(action)
+        # print(f"{action = }")
+        new_board, moved, _ = move(self.board, action)
+        if moved:
+            new_board = add_random_tile(new_board)
+
+        self.board = new_board
+        self.update_board()
+
+    def update_board(self):
+        for i in range(4):
+            for j in range(4):
+                val = self.board[i, j]
+                self.cells[i][j].setText(str(val) if val != 0 else "")
+                self.cells[i][j].setStyleSheet(
+                    f"""
+                    background-color: {'#EEE4DA' if val else 'lightgray'};
+                    font-size: 24px;
+                    text-align: center;
+                """
+                )
 
 
 @njit
@@ -110,9 +184,6 @@ def any_moves_left(board: np.ndarray) -> bool:
 
 @njit
 def get_action_mask(board: np.ndarray) -> np.ndarray:
-    if np.any(board == 0):
-        return np.array([True, True, True, True])
-
     return np.array(
         [
             move(board, Direction.UP)[1],

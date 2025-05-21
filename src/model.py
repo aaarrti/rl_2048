@@ -23,7 +23,7 @@ class DuelingDQN(nn.Module):
     def __init__(
         self,
         input_dim: int = 16,
-        hidden_dims: Sequence[int] = [256, 256],
+        hidden_dims: Sequence[int] = [64, 64],
         output_dim: int = 4,
         dropout_prob: float = 0.1,
         activation: Literal["relu", "gelu", "selu"] = "gelu",

@@ -1,10 +1,18 @@
-import random
+import argparse
+from rich import print
 import numpy as np
-from collections import deque
 import torch
+from collections import deque
 import torch.nn.functional as F
+import random
 
 from model import DuelingDQN
+from env import Game2048Env, get_action_mask
+
+
+# UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled.
+# Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+torch.set_float32_matmul_precision("high")
 
 
 class ReplayBuffer:
@@ -75,6 +83,7 @@ class DQNAgent:
         obs_dim: int = 16,
         n_actions: int = 4,
         device: str | torch.device = "cpu",
+        update_target_every: int = 10,
         batch_size: int = 32,
     ):
         self.device = device
@@ -82,16 +91,17 @@ class DQNAgent:
         self.q_net = torch.compile(self.q_net_uncompiled, fullgraph=True, mode="max-autotune")
         self.target_net_uncompiled = DuelingDQN(obs_dim).to(device)
         self.target_net_uncompiled.load_state_dict(self.q_net_uncompiled.state_dict())
-
         self.target_net = torch.compile(self.target_net_uncompiled)
 
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=1e-3)  # type: ignore
         self.buffer = ReplayBuffer()
+        # self.scaler = torch.amp.grad_scaler.GradScaler()
+
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.05
         self.epsilon_decay = 0.995
-        self.update_target_every = 10
+        self.update_target_every = update_target_every
         self.learn_every = 4
         self.step_count = 0
         self.n_actions = n_actions
@@ -115,6 +125,7 @@ class DQNAgent:
 
         s, a, r, s2, d, mask = self.buffer.sample(self.batch_size)
 
+        # with torch.cuda.amp.autocast(dtype=torch.bfloat16):
         torch.compiler.cudagraph_mark_step_begin()
         s = torch.tensor(s, dtype=torch.float32).to(self.device)
         a = torch.tensor(a, dtype=torch.int64).unsqueeze(1).to(self.device)
@@ -130,7 +141,8 @@ class DQNAgent:
         next_q_online[~mask] = -1e9
         best_actions = torch.argmax(next_q_online, dim=1, keepdim=True)
 
-        next_q_target = self.target_net(s2)
+        with torch.no_grad():
+            next_q_target = self.target_net(s2)
         target = r + self.gamma * (1 - d) * next_q_target.gather(1, best_actions)
 
         loss = F.mse_loss(q, target)
@@ -146,3 +158,42 @@ class DQNAgent:
 
     def save(self, path: str):
         torch.save(self.q_net_uncompiled.state_dict(), path)
+
+
+def main(num_episodes: int, batch_size: int, update_target_every: int):
+    device = torch.device("cuda")
+    env = Game2048Env()
+    obs, _ = env.reset()
+
+    agent = DQNAgent(device=device, batch_size=batch_size, update_target_every=update_target_every)
+
+    for episode in range(num_episodes):
+        obs, _ = env.reset()
+        done = False
+        total_reward = 0
+
+        while not done:
+            mask = get_action_mask(obs.reshape([4, 4]))
+            action = agent.select_action(obs.astype(np.float32), mask)
+
+            next_obs, reward, done, _, _ = env.step(action)
+            next_mask = get_action_mask(next_obs.reshape([4, 4]))
+
+            agent.buffer.add(obs, action, reward, next_obs, done, next_mask)
+            agent.train_step()
+
+            obs = next_obs
+            total_reward += reward
+
+        total_reward = int(total_reward)
+        print(f"Episode {episode:4d} — Reward: {total_reward:4d} — ε: {agent.epsilon:.3f}")
+
+    agent.save("models/dqn.pt")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-episodes", default=2_000, type=int)
+    parser.add_argument("--batch-size", default=256, type=int)
+    parser.add_argument("--update-target-every", type=int, default=20)
+    main(**vars(parser.parse_args()))
