@@ -1,5 +1,4 @@
-from collections.abc import Sequence
-from typing import Literal
+import numpy as np
 import torch.nn as nn
 import torch
 
@@ -12,52 +11,62 @@ class DuelingDQN(nn.Module):
         Wang et al. (2016), "Dueling Network Architectures for Deep Reinforcement Learning"
         https://arxiv.org/abs/1511.06581
 
-    Args:
-        input_dim (int): Dimensionality of input features (e.g., 16 for flattened 2048 board)
-        hidden_dims (list of int): Sizes of hidden layers in the shared trunk
-        output_dim (int): Number of discrete actions (e.g., 4 for 2048: up/down/left/right)
-        dropout_prob (float): Dropout probability after each activation
-        activation (nn.Module): PyTorch activation class (default: GELU)
     """
 
-    def __init__(
-        self,
-        input_dim: int = 16,
-        hidden_dims: Sequence[int] = [64, 64],
-        output_dim: int = 4,
-        dropout_prob: float = 0.1,
-        activation: Literal["relu", "gelu", "selu"] = "gelu",
-    ):
+    def __init__(self, input_dim: int = 16, n_actions: int = 4, hidden_dim: int = 64):
         super().__init__()
-        self.activation = make_activation(activation)
+        self.shared = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.advantage = nn.Linear(hidden_dim, n_actions)
+        self.value = nn.Linear(hidden_dim, 1)
 
-        # Shared feature extractor
-        layers = []
-        in_dim = input_dim
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(in_dim, h_dim))
-            layers.append(nn.LayerNorm(h_dim))
-            layers.append(self.activation)
-            layers.append(nn.Dropout(dropout_prob))
-            in_dim = h_dim
-        self.shared = nn.Sequential(*layers)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.view(x.size(0), -1)  # Flatten 4x4 board → (B, 16)
+        features = self.shared(x)
+        adv = self.advantage(features)
+        val = self.value(features)
+        q = val + (adv - adv.mean(dim=1, keepdim=True))
+        return q
 
-        # Value stream (V(s))
-        self.value_head = nn.Sequential(nn.Linear(in_dim, 128), self.activation, nn.Linear(128, 1))
 
-        # Advantage stream (A(s,a))
-        self.advantage_head = nn.Sequential(
-            nn.Linear(in_dim, 128), self.activation, nn.Linear(128, output_dim)
+class Actor(nn.Module):
+    def __init__(self, obs_dim: int = 16, action_dim: int = 4):
+        super().__init__()
+        self.network = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 128)),
+            nn.Tanh(),
+            layer_init(nn.Linear(128, 128)),
+            nn.Tanh(),
+            layer_init(nn.Linear(128, action_dim), std=0.01),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.shared(x)  # shape: [batch, feat]
-        value = self.value_head(features)  # shape: [batch, 1]
-        advantage = self.advantage_head(features)  # shape: [batch, actions]
+        return self.network(x)
 
-        # Combine streams into Q(s, a)
-        q = value + (advantage - advantage.mean(dim=1, keepdim=True))
-        return q
+
+class Critic(nn.Module):
+    def __init__(self, obs_dim: int = 4):
+        super().__init__()
+        self.network = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 128)),
+            nn.Tanh(),
+            layer_init(nn.Linear(128, 128)),
+            nn.Tanh(),
+            layer_init(nn.Linear(128, 1), std=1.0),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.network(x)
+
+
+def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.0) -> nn.Linear:
+    torch.nn.init.orthogonal_(layer.weight, std)  # type: ignore
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
 
 
 def make_activation(activation: str | None) -> nn.Module:

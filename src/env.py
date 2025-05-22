@@ -1,6 +1,7 @@
 from typing import Any
 from enum import IntEnum
 import gymnasium as gym
+from gymnasium.utils import seeding
 import numpy as np
 from gymnasium import spaces
 from numba import njit
@@ -25,9 +26,12 @@ class Direction(IntEnum):
 
 class Game2048Env(gym.Env):
 
-    def __init__(self, *args, **kwargs):
+    metadata = {"vectorizable": True}
+
+    def __init__(self, use_custom_reward: bool = False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.size = 4
+        self.use_custom_reward = use_custom_reward
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(
             low=0, high=2**16, shape=(self.size * self.size,), dtype=np.int32
@@ -37,15 +41,20 @@ class Game2048Env(gym.Env):
     def reset(self, seed: int | None = None, options=None) -> tuple[np.ndarray, dict]:  # type: ignore
         super().reset(seed=seed)
         self.board.fill(0)
-        self.board = add_random_tile(add_random_tile(self.board))
+        self.add_random_tile()
+        self.add_random_tile()
         return self.board.flatten(), {}
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
-
         action = Direction(action)
-        self.board, moved, reward = move(self.board, action)
+        if self.use_custom_reward:
+            new_board, moved, merge_score = move(self.board, action)
+            reward = custom_reward(self.board, new_board, merge_score)
+            self.board = new_board
+        else:
+            self.board, moved, reward = move(self.board, action)
         if moved:
-            self.board = add_random_tile(self.board)
+            self.add_random_tile()
         done = not any_moves_left(self.board)
         return self.board.flatten(), reward, done, False, {}
 
@@ -58,11 +67,15 @@ class Game2048Env(gym.Env):
     def get_action_mask(self) -> np.ndarray:
         return get_action_mask(self.board)
 
+    def add_random_tile(self):
+        self.board = add_random_tile(self.board, self.np_random)
 
-class DQN2048Player(QWidget):
+
+class Agent2048Player(QWidget):
     def __init__(self, select_action: SelectAction):
         super().__init__()
         self.select_action = select_action
+        self._np_random, _ = seeding.np_random(22)
         self.setWindowTitle("2048 Agent")
         self.grid = QGridLayout()
         self.setLayout(self.grid)
@@ -85,8 +98,8 @@ class DQN2048Player(QWidget):
 
     def reset_game(self):
         self.board = np.zeros((4, 4), dtype=np.int32)
-        self.board = add_random_tile(self.board)
-        self.board = add_random_tile(self.board)
+        self.add_random_tile()
+        self.add_random_tile()
         self.update_board()
 
     def agent_step(self):
@@ -99,11 +112,10 @@ class DQN2048Player(QWidget):
         action = self.select_action(self.board, mask)
         action = Direction(action)
         # print(f"{action = }")
-        new_board, moved, _ = move(self.board, action)
+        self.board, moved, _ = move(self.board, action)
         if moved:
-            new_board = add_random_tile(new_board)
+            self.add_random_tile()
 
-        self.board = new_board
         self.update_board()
 
     def update_board(self):
@@ -118,6 +130,43 @@ class DQN2048Player(QWidget):
                     text-align: center;
                 """
                 )
+
+    def add_random_tile(self):
+        self.board = add_random_tile(self.board, self._np_random)
+
+
+@njit
+def custom_reward(board_before: np.ndarray, board_after: np.ndarray, merge_score: float) -> float:
+    """
+    Compute a shaped reward for 2048 that includes:
+    - Merge reward (raw score)
+    - Max tile bonus
+    - Smoothness penalty
+    - Movement bonus
+
+    Args:
+        board_before: The board before the move (4x4 int array).
+        board_after: The board after the move.
+        merge_score: The raw merge score from tile combining.
+
+    Returns:
+        A float reward value.
+    """
+
+    # Max tile bonus: encourage reaching higher values
+    max_tile_after = np.max(board_after)
+    max_tile_bonus = np.log2(max_tile_after) * 0.1 if max_tile_after > 0 else 0.0
+
+    # Smoothness penalty: penalize boards with high variance
+    smoothness_penalty = -np.std(board_after) / 10.0
+
+    # Movement bonus: reward if board changed significantly
+    moved = not np.array_equal(board_before, board_after)
+    movement_bonus = 0.1 if moved else 0.0
+
+    # Total reward: merge reward + tile progress - chaos + motion
+    reward = merge_score + max_tile_bonus + smoothness_penalty + movement_bonus
+    return reward  # type: ignore
 
 
 @njit
@@ -195,7 +244,7 @@ def get_action_mask(board: np.ndarray) -> np.ndarray:
 
 
 @njit
-def add_random_tile(board: np.ndarray) -> np.ndarray:
+def add_random_tile(board: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     # board = board.copy()
     empty_count = 0
     size = board.shape[0]
@@ -210,8 +259,8 @@ def add_random_tile(board: np.ndarray) -> np.ndarray:
         return board  # No space to add
 
     # Choose the n-th empty cell
-    target_index = np.random.randint(0, empty_count)
-    value = 4 if np.random.random() < 0.1 else 2
+    target_index = rng.integers(0, empty_count)
+    value = 4 if rng.random() < 0.1 else 2
 
     # Find and fill that empty cell
     empty_seen = 0

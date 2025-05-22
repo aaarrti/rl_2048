@@ -5,7 +5,7 @@ import torch
 
 from PyQt5.QtWidgets import QApplication
 from model import DuelingDQN
-from env import DQN2048Player
+from env import Agent2048Player
 
 # UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled.
 # Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
@@ -29,7 +29,7 @@ def main():
             return int(np.argmax(q_values))
 
     app = QApplication(sys.argv)
-    window = DQN2048Player(select_action)
+    window = Agent2048Player(select_action)
     window.show()
     sys.exit(app.exec_())
 

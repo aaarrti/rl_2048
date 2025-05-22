@@ -10,6 +10,8 @@ from model import DuelingDQN
 from env import Game2048Env, get_action_mask
 
 
+np.random.seed(22)
+torch.manual_seed(22)
 # UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled.
 # Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
 torch.set_float32_matmul_precision("high")
@@ -160,14 +162,14 @@ class DQNAgent:
         torch.save(self.q_net_uncompiled.state_dict(), path)
 
 
-def main(num_episodes: int, batch_size: int, update_target_every: int):
+def main(num_episodes: int, batch_size: int, update_target_every: int, use_custom_reward: bool):
     device = torch.device("cuda")
-    env = Game2048Env()
+    env = Game2048Env(use_custom_reward=use_custom_reward)
     obs, _ = env.reset()
 
     agent = DQNAgent(device=device, batch_size=batch_size, update_target_every=update_target_every)
 
-    for episode in range(num_episodes):
+    for episode in range(1, num_episodes + 1):
         obs, _ = env.reset()
         done = False
         total_reward = 0
@@ -186,14 +188,17 @@ def main(num_episodes: int, batch_size: int, update_target_every: int):
             total_reward += reward
 
         total_reward = int(total_reward)
-        print(f"Episode {episode:4d} — Reward: {total_reward:4d} — ε: {agent.epsilon:.3f}")
+        print(
+            f"Episode {episode:4d} — Steps: {agent.step_count:4d} — Reward: {total_reward:4d} — ε: {agent.epsilon:.3f}"
+        )
 
     agent.save("models/dqn.pt")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-episodes", default=2_000, type=int)
-    parser.add_argument("--batch-size", default=256, type=int)
-    parser.add_argument("--update-target-every", type=int, default=20)
+    parser.add_argument("--num-episodes", default=200, type=int)
+    parser.add_argument("--batch-size", default=1024, type=int)
+    parser.add_argument("--update-target-every", type=int, default=2000)
+    parser.add_argument("--use-custom-reward", action="store_true")
     main(**vars(parser.parse_args()))
