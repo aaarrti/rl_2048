@@ -48,7 +48,7 @@ class RolloutBuffer:
         self.lambda_gae = lambda_gae
 
         self.observations = np.zeros((num_rollout_steps, num_envs, *obs_shape), dtype=np.float32)
-        self.actions = np.zeros((num_rollout_steps, num_envs, *action_shape), dtype=np.int64)
+        self.actions = np.zeros((num_rollout_steps, num_envs), dtype=np.int64)
         self.log_probs = np.zeros((num_rollout_steps, num_envs), dtype=np.float32)
         self.rewards = np.zeros((num_rollout_steps, num_envs), dtype=np.float32)
         self.dones = np.zeros((num_rollout_steps, num_envs), dtype=np.bool_)
@@ -108,7 +108,7 @@ class RolloutBuffer:
         num_total_samples = self.num_rollout_steps * self.num_envs
 
         b_obs = self.observations.reshape((num_total_samples, *self.obs_shape))
-        b_actions = self.actions.reshape((num_total_samples, *self.action_shape)).squeeze()
+        b_actions = self.actions.reshape((num_total_samples)).squeeze()
         b_log_probs = self.log_probs.reshape(num_total_samples)
         b_advantages = self.advantages.reshape(num_total_samples)
         b_returns = self.returns.reshape(num_total_samples)
@@ -269,7 +269,6 @@ class PPOAgent:
                 # torch.compiler.cudagraph_mark_step_begin()
                 end = start + self.batch_size
                 mb_indices = indices[start:end]
-
                 mb_obs_raw = b_obs_raw[mb_indices]
                 mb_actions = b_actions[mb_indices]
                 mb_log_probs_old = b_log_probs_old[mb_indices]
@@ -331,7 +330,7 @@ def make_env(rank: int, seed: int = 22):
 
 
 def main(num_envs: int, total_timesteps: int, batch_size: int, epochs: int):
-    num_rollout_steps = 2 - 48 // num_envs
+    num_rollout_steps = batch_size // num_envs
 
     envs = gym.vector.SyncVectorEnv([make_env(i) for i in range(num_envs)])
     agent = PPOAgent(num_epochs=epochs, batch_size=batch_size, num_total_samples=total_timesteps)
@@ -392,7 +391,7 @@ def main(num_envs: int, total_timesteps: int, batch_size: int, epochs: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--num-envs", type=int, default=4)
-    parser.add_argument("--total-timesteps", type=int, default=1_000_000)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--num-envs", type=int, default=8)
+    parser.add_argument("--total-timesteps", type=int, default=100)
     main(**vars(parser.parse_args()))

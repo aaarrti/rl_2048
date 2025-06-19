@@ -13,6 +13,7 @@ dependencies = [
     "pytest>=8.3.5",
     "rich>=14.0.0",
     "torch>=2.6.0",
+    "torchrl>=0.8.1",
 ]
 
 
