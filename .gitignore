@@ -142,5 +142,4 @@ cython_debug/
 
 .history
 .vscode
-models
 *.prof

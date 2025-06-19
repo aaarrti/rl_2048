@@ -5,13 +5,18 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "absl-py>=2.3.0",
+    "chex>=0.1.89",
+    "dvc[gs]>=3.60.1",
+    "flax>=0.10.6",
     "gymnasium>=1.1.1",
+    "jax[cuda12]>=0.6.2",
+    "ml-collections>=1.1.0",
     "numba>=0.61.2",
-    "pyinstrument>=5.0.1",
+    "numpy>=2.1.3",
+    "optax>=0.2.5",
     "pyqt5>=5.15.11",
     "pytest>=8.3.5",
-    "rich>=14.0.0",
-    "torch>=2.6.0",
 ]
 
 
